@@ -20,6 +20,7 @@ const LINE_BREAK = DISPLAY_CLI? PHP_EOL : "<br/>";
 version_compare(PHP_VERSION, '7.0.0') >= 0 or die( 'Please use at least PHP 7.0.0, your version: ' . PHP_VERSION);
 
 echo "WELCOME - here are the issues grouped and sorted by state:". LINE_BREAK;
+echo "==========================================================================================================". LINE_BREAK;
 echo "Assumptions:". LINE_BREAK;
 echo "- The workflow may not have a state that goes back to the first state.". LINE_BREAK;
 echo "- The order of states that are equal (eg. ON HOLD and DOING) and the order of the issues depend on their order in the initialization.". LINE_BREAK;
@@ -38,9 +39,10 @@ class WorkflowEngine {
     const DONE = "DONE";
     const FAILED = "FAILED";
         
-    private $issues;
-    private $transitions;
-    private $sortedStates;
+    private $issues = array();
+    private $transitions = array();
+    private $sortedStates = array();
+    private $errors = array();
     
     /**
      * Init the issues and transitions with the constants and sort them.
@@ -63,23 +65,57 @@ class WorkflowEngine {
             self::TO_DO => new Transition(self::TO_DO, array(self::ON_HOLD, self::DOING)),
             self::DOING => new Transition(self::DOING, array(self::DONE, self::FAILED, self::ON_HOLD))
         );
-        
+     
         $this->sortStates();
+        $this->checkIssues();
+        $this->printErrors();
+
     }
     
     /**
-     * Prints the issues and states.
+     * Prints the issues and states if the initialization was fine.
      */
     public function printIssuesAndStates() {
         
+        if (count($this->errors) > 0) return;
+        
         foreach ($this->sortedStates as $state) {
             echo $state . LINE_BREAK;
+            $stateExists = false;
             foreach ($this->issues as $issue) {
                 if (strcmp($issue->getState(), $state) == 0) {
                     echo " - " . $issue->getTitle() . LINE_BREAK; 
                 }
             }
         }
+    }
+    
+    /**
+     * Prints any errors that occurred.
+     */
+    private function printErrors() {
+        if (count($this->errors) > 0) {
+            echo "INITIALIZATION ERROR - please check the constructor" . LINE_BREAK;
+            foreach($this->errors as $error) {
+                echo "# ". $error . LINE_BREAK;
+            }
+        }
+    }
+    
+    /**
+     * Checks that the issues have a valid state.
+     */
+    private function checkIssues() {
+        
+        if ($this->issues != NULL) {
+            foreach ($this->issues as $key => $issue) {
+                if (!array_key_exists($issue->getState(), $this->sortedStates)) {
+                    $this->errors[] = "Status '". $issue->getState() .
+                    "' does not exist. Please check the status of '" . $issue->getTitle() . "'.";
+                }
+            }
+        }
+        
     }
     
     /**
@@ -94,7 +130,7 @@ class WorkflowEngine {
             $this->sortedStates[$first] = $first;
             $this->appendChildStates($this->sortedStates, $first); // no need to pass states
         } else {
-            echo "INITIALIZATION ERROR: Please check your workflow - no starting point defined.";
+            $this->errors[] =  "Please check your workflow - no starting point defined.";
         }
 
     }
@@ -106,17 +142,22 @@ class WorkflowEngine {
      */
     private function getFirstState() {
         
-        // go through each transitions
-        foreach ($this->transitions as $from => $to) {
-            // is the checked state successor of another state?
-            foreach ($this->transitions as $key => $toArr) {
-                // if true, it's not the first - continue with next state
-                if (in_array($from, $toArr->getToStates())) {
-                    continue 2;
+        if ($this->transitions != null) {
+            
+            // go through each transitions
+            foreach ($this->transitions as $from => $to) {
+                // is the checked state successor of another state?
+                foreach ($this->transitions as $key => $toArr) {
+                    // if true, it's not the first - continue with next state
+                    if (in_array($from, $toArr->getToStates())) {
+                        continue 2;
+                    }
                 }
+                return $from;
             }
-            return $from;
+            
         }
+        $this->errors[] =  "Please initialize the transitions.";
         return NULL;
     }
     
@@ -134,7 +175,7 @@ class WorkflowEngine {
             return $sorted;
         }
         
-        // go through the children of the state
+        // go through the children of the state | could loop reverse if original order is important
         foreach ($this->transitions[$parent]->getToStates() as $child) {
             // add them if not already added
             if (! in_array($child, $sorted)) {
